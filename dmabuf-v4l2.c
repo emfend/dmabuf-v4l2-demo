@@ -10,6 +10,7 @@
 #include <poll.h>
 #include <stdio.h>
 #include <stdint.h>
+#include <stdbool.h>
 #include <stdlib.h>
 #include <string.h>
 #include <sys/ioctl.h>
@@ -112,7 +113,7 @@ static int dump_image(const void *p, int size, const char *filename)
   return 0;
 }
 
-int open_video_device(const char *vdevice, uint32_t in_width, uint32_t in_height, uint32_t in_fourcc, struct v4l2_pix_format *pix_fmt)
+int open_video_device(const char *vdevice, uint32_t in_width, uint32_t in_height, uint32_t in_fourcc, struct v4l2_pix_format *pix_fmt, bool *mplane_api)
 {
   int fd;
   struct v4l2_capability caps;
@@ -132,14 +133,25 @@ int open_video_device(const char *vdevice, uint32_t in_width, uint32_t in_height
     goto err_cleanup;
   }
 
-  if(!(caps.capabilities & V4L2_CAP_VIDEO_CAPTURE))
+  if(caps.capabilities & V4L2_CAP_VIDEO_CAPTURE)
   {
-    printf("single-planar API not suported\n");
+    printf("Using single-planar API\n");
+    *mplane_api = false;
+  } else if(caps.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE)
+  {
+    printf("Using multi-planar API\n");
+    *mplane_api = true;
+  } else
+  {
+    printf("Devicce does not support video capture\n");
     goto err_cleanup;
   }
 
   memset(&fmt, 0, sizeof(fmt));
-  fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  if(mplane_api)
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+  else
+    fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if(ioctl(fd, VIDIOC_G_FMT, &fmt))
   {
     printf("VIDIOC_G_FMT: %s\n", strerror(errno));
@@ -186,6 +198,7 @@ int main(int argc, char *argv[])
   const int num_buffers = 3;
   int v4l2_fd;
   struct v4l2_pix_format pix_fmt;
+  bool mplane_api;
   int dmabuf_fds[num_buffers];
   void *dmabuf_maps[num_buffers];
   struct v4l2_requestbuffers rqbufs;
@@ -207,7 +220,9 @@ int main(int argc, char *argv[])
   }
 
   /* open v4l2 device */
-  v4l2_fd = open_video_device(args.vdev_name, args.width, args.height, args.fourcc, &pix_fmt);
+  v4l2_fd = open_video_device(args.vdev_name, args.width, args.height, args.fourcc, &pix_fmt, &mplane_api);
+  if(v4l2_fd < 0)
+    return -1;
 
   printf("Actual v4l2 device:  %s\n", args.vdev_name);
   printf("Actual image width:  %u\n", pix_fmt.width);
@@ -218,7 +233,10 @@ int main(int argc, char *argv[])
   /* request buffers from v4l2 device */
   memset(&rqbufs, 0, sizeof(rqbufs));
   rqbufs.count = num_buffers;
-  rqbufs.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  if(mplane_api)
+    rqbufs.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+  else
+    rqbufs.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
   rqbufs.memory = V4L2_MEMORY_DMABUF;
   if(ioctl(v4l2_fd, VIDIOC_REQBUFS, &rqbufs))
   {
@@ -260,13 +278,23 @@ int main(int argc, char *argv[])
   for(i = 0; i < num_buffers; ++i)
   {
     struct v4l2_buffer buf;
+    struct v4l2_plane planes[VIDEO_MAX_PLANES];
 
     memset(&buf, 0, sizeof(buf));
-
     buf.index = i;
-    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     buf.memory = V4L2_MEMORY_DMABUF;
-    buf.m.fd = dmabuf_fds[i];
+    if(mplane_api)
+    {
+      buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+      memset(&planes, 0, sizeof(planes));
+      buf.m.planes = planes;
+      buf.length = 1;
+      buf.m.planes[0].m.fd = dmabuf_fds[i];
+    }else
+    {
+      buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+      buf.m.fd = dmabuf_fds[i];
+    }
     if(ioctl(v4l2_fd, VIDIOC_QBUF, &buf))
     {
       printf("VIDIOC_QBUF: %s\n", strerror(errno));
@@ -275,7 +303,7 @@ int main(int argc, char *argv[])
   }
 
   /* start v4l2 device */
-  int type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+  int type = mplane_api ? V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE : V4L2_BUF_TYPE_VIDEO_CAPTURE;
   if(ioctl(v4l2_fd, VIDIOC_STREAMON, &type))
   {
     printf("VIDIOC_STREAMON: %s\n", strerror(errno));
@@ -289,12 +317,23 @@ int main(int argc, char *argv[])
   while((poll(pfds, 1, 5000) > 0) && (loop_count < args.loop_count))
   {
     struct v4l2_buffer buf;
+    struct v4l2_plane planes[VIDEO_MAX_PLANES];
     int buf_index;
 
     /* dequeue a buffer */
     memset(&buf, 0, sizeof(buf));
-    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
     buf.memory = V4L2_MEMORY_DMABUF;
+    if(mplane_api)
+    {
+      buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+      memset(&planes, 0, sizeof(planes));
+      buf.m.planes = planes;
+      buf.length = 1;
+    }
+    else
+    {
+      buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+    }
     if(ioctl(v4l2_fd, VIDIOC_DQBUF, &buf))
     {
       printf("VIDIOC_DQBUF: %s\n", strerror(errno));
@@ -322,10 +361,20 @@ int main(int argc, char *argv[])
 
     /* enqueue a buffer */
     memset(&buf, 0, sizeof(buf));
-    buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
-    buf.memory = V4L2_MEMORY_DMABUF;
     buf.index = buf_index;
-    buf.m.fd = dmabuf_fds[buf_index];
+    buf.memory = V4L2_MEMORY_DMABUF;
+    if(mplane_api)
+    {
+      buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
+      memset(&planes, 0, sizeof(planes));
+      buf.m.planes = planes;
+      buf.length = 1;
+      buf.m.planes[0].m.fd = dmabuf_fds[buf_index];
+    }else
+    {
+      buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
+      buf.m.fd = dmabuf_fds[buf_index];
+    }
     if(ioctl(v4l2_fd, VIDIOC_QBUF, &buf))
     {
       printf("VIDIOC_QBUF: %s\n", strerror(errno));
