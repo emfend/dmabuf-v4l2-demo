@@ -208,6 +208,8 @@ int main(int argc, char *argv[])
 
   /* open v4l2 device */
   v4l2_fd = open_video_device(args.vdev_name, args.width, args.height, args.fourcc, &pix_fmt);
+  if(v4l2_fd < 0)
+    return -1;
 
   printf("Actual v4l2 device:  %s\n", args.vdev_name);
   printf("Actual image width:  %u\n", pix_fmt.width);
