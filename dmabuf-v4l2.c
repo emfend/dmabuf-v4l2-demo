@@ -148,7 +148,7 @@ int open_video_device(const char *vdevice, uint32_t in_width, uint32_t in_height
   }
 
   memset(&fmt, 0, sizeof(fmt));
-  if(mplane_api)
+  if(*mplane_api)
     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE_MPLANE;
   else
     fmt.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
