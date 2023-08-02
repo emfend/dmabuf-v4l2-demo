@@ -137,11 +137,13 @@ int open_video_device(const char *vdevice, uint32_t in_width, uint32_t in_height
   {
     printf("Using single-planar API\n");
     *mplane_api = false;
-  } else if(caps.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE)
+  }
+  else if(caps.capabilities & V4L2_CAP_VIDEO_CAPTURE_MPLANE)
   {
     printf("Using multi-planar API\n");
     *mplane_api = true;
-  } else
+  }
+  else
   {
     printf("Devicce does not support video capture\n");
     goto err_cleanup;
@@ -183,7 +185,7 @@ int open_video_device(const char *vdevice, uint32_t in_width, uint32_t in_height
 
   return fd;
 
-err_cleanup: 
+err_cleanup:
   close(fd);
 
   return -1;
@@ -290,7 +292,8 @@ int main(int argc, char *argv[])
       buf.m.planes = planes;
       buf.length = 1;
       buf.m.planes[0].m.fd = dmabuf_fds[i];
-    }else
+    }
+    else
     {
       buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
       buf.m.fd = dmabuf_fds[i];
@@ -370,7 +373,8 @@ int main(int argc, char *argv[])
       buf.m.planes = planes;
       buf.length = 1;
       buf.m.planes[0].m.fd = dmabuf_fds[buf_index];
-    }else
+    }
+    else
     {
       buf.type = V4L2_BUF_TYPE_VIDEO_CAPTURE;
       buf.m.fd = dmabuf_fds[buf_index];
