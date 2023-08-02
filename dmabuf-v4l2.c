@@ -365,9 +365,20 @@ int main(int argc, char *argv[])
       if(asprintf(&filename, "%s/image_%d.raw", args.output_dir, loop_count) > 0)
       {
         int rc;
+        unsigned int offset, length;
 
-        rc = dump_image(dmabuf_maps[buf_index], pix_fmt.sizeimage, filename);
-        printf("Dumping to %s ... %s\n", filename, rc ? "failed" : "OK");
+        if(mplane_api)
+        {
+          offset = planes[0].data_offset;
+          length = planes[0].bytesused;
+        }
+        else
+        {
+          offset = 0;
+          length = buf.bytesused;
+        }
+        rc = dump_image(dmabuf_maps[buf_index] + offset, length, filename);
+        printf("Dumping %u bytes with offset %u to %s ... %s\n", length, offset, filename, rc ? "failed" : "OK");
         free(filename);
       }
     }
