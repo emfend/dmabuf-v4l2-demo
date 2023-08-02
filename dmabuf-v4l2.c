@@ -26,6 +26,7 @@
 struct arguments_t
 {
   char *vdev_name;
+  uint32_t timeout_ms;
   unsigned int loop_count;
   char *output_dir;
   uint32_t width;
@@ -41,6 +42,7 @@ static void print_usage(const char *progname)
   printf("\t-h <height>\tdesired image height\n");
   printf("\t-f <fourcc>\tdesired image fourcc\n");
   printf("\t-l <loop-count>\tnumber of program loops\n");
+  printf("\t-t <timeout>\ttimeout [ms]\n");
   printf("\t-o <out-dir>\tdirectory for file outputs\n");
 }
 
@@ -48,7 +50,7 @@ static int parse_arguments(int argc, char *argv[], struct arguments_t *args)
 {
   int c;
 
-  while((c = getopt(argc, argv, "d:l:w:h:f:o:")) != -1)
+  while((c = getopt(argc, argv, "d:l:w:h:f:t:o:")) != -1)
   {
     switch(c)
     {
@@ -87,6 +89,14 @@ static int parse_arguments(int argc, char *argv[], struct arguments_t *args)
           return -1;
         }
         args->fourcc = ((uint32_t) optarg[0] << 0) | ((uint32_t) optarg[1] << 8) | ((uint32_t) optarg[2] << 16) | ((uint32_t) optarg[3] << 24);
+        break;
+
+      case 't':
+        if(sscanf(optarg, "%u", &args->timeout_ms) != 1)
+        {
+          printf("Invalid timeout\n");
+          return -1;
+        }
         break;
 
       case 'o':
@@ -208,6 +218,7 @@ int main(int argc, char *argv[])
 
   memset(&args, 0, sizeof(args));
   args.vdev_name = "/dev/video0";
+  args.timeout_ms = 5000;
   args.loop_count = 10;
   args.output_dir = "/tmp";
   args.width = 0;
@@ -227,6 +238,7 @@ int main(int argc, char *argv[])
     return -1;
 
   printf("Actual v4l2 device:  %s\n", args.vdev_name);
+  printf("Actual timeout:      %ums\n", args.timeout_ms);
   printf("Actual image width:  %u\n", pix_fmt.width);
   printf("Actual image height: %u\n", pix_fmt.height);
   printf("Actual image format: %.4s\n", (char*) &pix_fmt.pixelformat);
@@ -317,7 +329,7 @@ int main(int argc, char *argv[])
   pfds[0].events = POLLIN;
 
   loop_count = 0;
-  while((poll(pfds, 1, 5000) > 0) && (loop_count < args.loop_count))
+  while((poll(pfds, 1, args.timeout_ms) > 0) && (loop_count < args.loop_count))
   {
     struct v4l2_buffer buf;
     struct v4l2_plane planes[VIDEO_MAX_PLANES];
